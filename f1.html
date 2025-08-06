@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Season Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+            color: #e0e6f1;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .section-title {
+            color: #61dafb;
+        }
+        .plot-container {
+            min-height: 400px;
+            background-color: #161b22;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            color: white;
+            font-size: 1.5rem;
+            flex-direction: column;
+        }
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3498db;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="antialiased">
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p>Fetching data and running simulations... This might take a moment.</p>
+    </div>
+
+    <div class="container bg-gray-800 rounded-lg shadow-lg my-8 p-6">
+        <h1 class="text-4xl font-bold text-center mb-6 section-title">F1 Season Simulator</h1>
+        <p class="text-center text-gray-300 mb-8">
+            Simulate race finishing probabilities and season-end point projections for your favorite F1 drivers!
+        </p>
+
+        <div class="mb-8 p-6 bg-gray-700 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-4 section-title">Season Projection Overview</h2>
+            <div id="top-drivers-output" class="text-gray-200">
+                <p>Loading top drivers...</p>
+            </div>
+        </div>
+
+        <div class="mb-8 p-6 bg-gray-700 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-4 section-title">Select Simulation</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label for="mode-select" class="block text-gray-300 text-sm font-bold mb-2">
+                        Choose Simulation Mode:
+                    </label>
+                    <select id="mode-select" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-gray-200">
+                        <option value="position">Race Finishing Probabilities</option>
+                        <option value="season">Season End Points Projection</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="driver-select" class="block text-gray-300 text-sm font-bold mb-2">
+                        Select Driver:
+                    </label>
+                    <select id="driver-select" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-gray-200">
+                    </select>
+                </div>
+            </div>
+            <button id="run-simulation-btn" class="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg focus:outline-none focus:shadow-outline w-full transition duration-300 ease-in-out transform hover:scale-105">
+                Run Simulation for Selected Driver
+            </button>
+        </div>
+
+        <div class="p-6 bg-gray-700 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-4 section-title">Simulation Results</h2>
+            <div id="plot-output" class="plot-container">
+                <p class="text-center text-gray-400">Select a driver and run a simulation to see the results here.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let drivers = [];
+        let driverScores = [];
+        let driverWins = [];
+        let avgPositions = [];
+
+        const racesLeft = 11;
+        const totalRaces = 24;
+        const pointsPerPosition = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1].concat(Array(10).fill(0));
+
+        function skillscore(score, winCount, avgFinish) {
+            const racesRun = totalRaces - racesLeft;
+            const winFactor = racesRun > 0 ? winCount / racesRun : 0;
+            const pointFactor = racesRun > 0 ? score / (25 * racesRun) : 0;
+            const avgFinishFactor = 1 - (avgFinish - 1) / (drivers.length - 1);
+            return 0.2 * winFactor + 0.5 * pointFactor + 0.3 * avgFinishFactor;
+        }
+
+        let driverSkillscore = [];
+        let weights = [];
+
+        function weightedRaceSimulation(driversList, weightsList) {
+            const remainingDrivers = [...driversList];
+            const remainingWeights = [...weightsList];
+            const finishingOrder = [];
+
+            while (remainingDrivers.length > 0) {
+                const cumulativeWeights = [];
+                let currentSum = 0;
+                for (let i = 0; i < remainingWeights.length; i++) {
+                    currentSum += remainingWeights[i];
+                    cumulativeWeights.push(currentSum);
+                }
+
+                const rand = Math.random() * currentSum;
+                let chosenIdx = -1;
+                for (let i = 0; i < cumulativeWeights.length; i++) {
+                    if (rand < cumulativeWeights[i]) {
+                        chosenIdx = i;
+                        break;
+                    }
+                }
+                
+                if (chosenIdx === -1) {
+                    chosenIdx = remainingDrivers.length - 1;
+                }
+
+                const chosenDriver = remainingDrivers[chosenIdx];
+                finishingOrder.push(chosenDriver);
+
+                remainingDrivers.splice(chosenIdx, 1);
+                remainingWeights.splice(chosenIdx, 1);
+            }
+            return finishingOrder;
+        }
+
+        function monteCarloFinishingPositions(driversList, weightsList, numSimulations = 100000) {
+            const counts = {};
+            driversList.forEach(driver => {
+                counts[driver] = Array(driversList.length).fill(0);
+            });
+
+            for (let i = 0; i < numSimulations; i++) {
+                const order = weightedRaceSimulation(driversList, weightsList);
+                order.forEach((driver, pos) => {
+                    counts[driver][pos]++;
+                });
+            }
+
+            const probabilities = {};
+            driversList.forEach(driver => {
+                const totalFinishes = counts[driver].reduce((sum, c) => sum + c, 0);
+                probabilities[driver] = counts[driver].map(count => totalFinishes > 0 ? count / totalFinishes : 0);
+            });
+            return probabilities;
+        }
+
+        function simulateSeasonProjection(driversList, weightsList, currentScores, racesRemaining, numSimulations = 10000) {
+            const totalPointsSamples = {};
+            driversList.forEach(driver => {
+                totalPointsSamples[driver] = [];
+            });
+
+            for (let i = 0; i < numSimulations; i++) {
+                const simScores = [...currentScores];
+                for (let r = 0; r < racesRemaining; r++) {
+                    const order = weightedRaceSimulation(driversList, weightsList);
+                    order.forEach((driver, pos) => {
+                        simScores[driversList.indexOf(driver)] += pointsPerPosition[pos];
+                    });
+                }
+                driversList.forEach((driver, idx) => {
+                    totalPointsSamples[driver].push(simScores[idx]);
+                });
+            }
+            return totalPointsSamples;
+        }
+
+        let positionResults = {};
+        let seasonResults = {};
+        let championshipProbs = {};
+
+        async function fetchF1Data() {
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    const data = {
+                        drivers: ["Oscar Piastri", "Lando Norris", "Charles Leclerc", "Lewis Hamilton", "George Russell", 
+                                  "Kimi Antonelli", "Max Verstappen", "Yuki Tsunoda", "Alexander Albon", "Carlos Sainz", 
+                                  "Nico Hulkenberg", "Gabriel Bortoleto", "Liam Lawson", "Isack Hadjar", "Lance Stroll", 
+                                  "Fernando Alonso", "Esteban Ocon", "Oliver Bearman", "Pierre Gasly", "Franco Colapinto"],
+                        driverScores: [266, 250, 139, 109, 157, 63, 185, 10, 54, 16, 37, 6, 16, 22, 20, 16, 27, 8, 20, 0],
+                        driverWins: [5, 4, 0, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        avgPositions: [2.2, 3.3, 6.0, 7.2, 5.1, 10.4, 3.5, 11.0, 9.1, 12.0, 8.5, 12.8, 13.2, 14.5, 11.5, 16.0, 9.5, 13.8, 14.0, 15.0]
+                    };
+                    resolve(data);
+                }, 1500);
+            });
+        }
+
+        async function runInitialSimulations() {
+            showLoading(true, "Fetching F1 data and running simulations...");
+            try {
+                const f1Data = await fetchF1Data();
+                drivers = f1Data.drivers;
+                driverScores = f1Data.driverScores;
+                driverWins = f1Data.driverWins;
+                avgPositions = f1Data.avgPositions;
+
+                driverSkillscore = drivers.map((_, i) => 
+                    skillscore(driverScores[i], driverWins[i], avgPositions[i])
+                );
+                const totalSkill = driverSkillscore.reduce((sum, s) => sum + s, 0);
+                weights = driverSkillscore.map(s => s / totalSkill);
+
+                positionResults = monteCarloFinishingPositions(drivers, weights, 100000);
+                seasonResults = simulateSeasonProjection(drivers, weights, driverScores.slice(), racesLeft, 10000);
+
+                const championshipWins = {};
+                drivers.forEach(driver => championshipWins[driver] = 0);
+                const numSimulations = seasonResults[drivers[0]].length;
+
+                for (let i = 0; i < numSimulations; i++) {
+                    const scores = {};
+                    drivers.forEach(driver => {
+                        scores[driver] = seasonResults[driver][i];
+                    });
+                    const maxPoints = Math.max(...Object.values(scores));
+                    const winners = Object.keys(scores).filter(d => scores[d] === maxPoints);
+                    winners.forEach(w => {
+                        championshipWins[w] += 1 / winners.length;
+                    });
+                }
+                championshipProbs = {};
+                drivers.forEach(d => {
+                    championshipProbs[d] = championshipWins[d] / numSimulations;
+                });
+
+                populateDriverSelect();
+                displayTopDrivers();
+            } catch (error) {
+                console.error("Failed to load F1 data or run simulations:", error);
+                document.getElementById('top-drivers-output').innerHTML = '<p class="text-red-400">Error loading data. Please try again.</p>';
+                document.getElementById('plot-output').innerHTML = '<p class="text-red-400">Error loading data. Please try again.</p>';
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function showPositionPlot(driverName, positionResultsData) {
+            const plotDiv = document.getElementById('plot-output');
+            const positions = Array.from({length: drivers.length}, (_, i) => i + 1);
+            const probs = positionResultsData[driverName];
+
+            const data = [{
+                x: positions,
+                y: probs,
+                type: 'bar',
+                text: probs.map(p => `${(p * 100).toFixed(2)}%`),
+                hoverinfo: 'text+x',
+                marker: { color: '#61dafb' }
+            }];
+
+            const layout = {
+                title: `Finishing Position Probabilities for ${driverName}`,
+                xaxis: {
+                    title: "Finishing Position",
+                    dtick: 1,
+                    tickmode: 'linear',
+                    range: [0.5, drivers.length + 0.5]
+                },
+                yaxis: {
+                    title: "Probability",
+                    range: [0, 1],
+                    tickformat: ',.0%',
+                },
+                plot_bgcolor: '#161b22',
+                paper_bgcolor: '#161b22',
+                font: {
+                    color: '#e0e6f1'
+                },
+                margin: { t: 50, b: 50, l: 50, r: 50 }
+            };
+            Plotly.newPlot(plotDiv, data, layout);
+        }
+
+        function showSeasonProjectionPlot(driverName, seasonResultsData) {
+            const plotDiv = document.getElementById('plot-output');
+            const samples = seasonResultsData[driverName];
+
+            const data = [{
+                x: samples,
+                type: 'histogram',
+                nbinsx: 50,
+                name: `${driverName} Season Points`,
+                marker: { color: '#ef4444' },
+                opacity: 0.75,
+            }];
+
+            const layout = {
+                title: `Projected Total Points Distribution for ${driverName}`,
+                xaxis: {
+                    title: "Total Points at Season End",
+                },
+                yaxis: {
+                    title: "Frequency",
+                },
+                bargap: 0.1,
+                plot_bgcolor: '#161b22',
+                paper_bgcolor: '#161b22',
+                font: {
+                    color: '#e0e6f1'
+                },
+                margin: { t: 50, b: 50, l: 50, r: 50 }
+            };
+            Plotly.newPlot(plotDiv, data, layout);
+        }
+
+        const driverSelect = document.getElementById('driver-select');
+        const modeSelect = document.getElementById('mode-select');
+        const runSimulationBtn = document.getElementById('run-simulation-btn');
+        const topDriversOutput = document.getElementById('top-drivers-output');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        function populateDriverSelect() {
+            driverSelect.innerHTML = ''; 
+            drivers.forEach(driver => {
+                const option = document.createElement('option');
+                option.value = driver;
+                option.textContent = driver;
+                driverSelect.appendChild(option);
+            });
+        }
+
+        function showLoading(show, message = "Running simulations...") {
+            if (show) {
+                loadingOverlay.classList.remove('hidden');
+                loadingOverlay.querySelector('p').textContent = message;
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        function displayTopDrivers() {
+            const expectedPoints = {};
+            drivers.forEach(driver => {
+                const samples = seasonResults[driver];
+                if (samples && samples.length > 0) {
+                    expectedPoints[driver] = samples.reduce((sum, val) => sum + val, 0) / samples.length;
+                } else {
+                    expectedPoints[driver] = 0;
+                }
+            });
+
+            const top5 = Object.entries(expectedPoints)
+                .sort(([, pointsA], [, pointsB]) => pointsB - pointsA)
+                .slice(0, 5);
+
+            let html = '<ul class="list-disc pl-5">';
+            top5.forEach(([driver, points]) => {
+                const winChance = (championshipProbs[driver] * 100).toFixed(2);
+                html += `<li><strong>${driver}</strong>: ${points.toFixed(1)} pts, Win Chance: ${winChance}%</li>`;
+            });
+            html += '</ul>';
+            topDriversOutput.innerHTML = html;
+        }
+
+        window.onload = async function() {
+            await runInitialSimulations();
+        };
+
+        runSimulationBtn.addEventListener('click', () => {
+            const selectedDriver = driverSelect.value;
+            const selectedMode = modeSelect.value;
+            const plotDiv = document.getElementById('plot-output');
+
+            if (!selectedDriver) {
+                plotDiv.innerHTML = '<p class="text-center text-red-400">Please select a driver.</p>';
+                return;
+            }
+
+            Plotly.purge(plotDiv);
+
+            if (selectedMode === 'position') {
+                showPositionPlot(selectedDriver, positionResults);
+            } else if (selectedMode === 'season') {
+                showSeasonProjectionPlot(selectedDriver, seasonResults);
+            }
+        });
+    </script>
+</body>
+</html>
