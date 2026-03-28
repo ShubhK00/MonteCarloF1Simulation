@@ -1,22 +1,19 @@
-# MonteCarloF1Simulation
-Uses Monte-Carlo Distribution and real F1 statistics to generate predictions for the rest of the season.
+## Features
+- Caches and creates CSV files for the involved data.
 
-Features:
-- Simulate race finishing order probabilities
-- Simulate remaining season outcomes
-- Visualize interactive charts using Plotly
-- Hover to see percentages or point totals
-- See expected final points and championship odds
-- Switch between position and season views dynamically
+## How It Works
 
+## 1. Data Ingestion
+- Historical F1 data (2018–2024) is cached and extracted using FastF1.
+- Generates multiple CSV files, including:
+  - Race results
+  - Qualifying results
+  - Weather
+  - Race Events
+  - Starting tyre compounds
+- Ensures the model has clean, structured input for analysis.
 
-🧠 How It Works
-1. Each driver is assigned a skill score based on:
-  - Current Points
-  - Win Count
-- Average Finishing Position
-2. Then:
-- Monte Carlo simulates 100,000+ single races using weighted probabilities.
-- Monte Carlo simulates 10,000 full seasons using the F1 points system.
-- Results are displayed as interactive plots.
-
+## Future Plans
+- Process the ingested data to engineer features for prediction.
+- Train a machine learning model (XGBoost - Monte Carlo hybrid model) to forecast race outcomes.
+- Visualize model predictions with interactive charts and dashboards.
