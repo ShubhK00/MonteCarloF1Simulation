@@ -30,7 +30,7 @@ f1-predictor/
 ├── model.py                # Train and evaluate the XGBoost model
 ├── simulate.py             # Monte Carlo simulation engine
 ├── predict.py              # Predict an upcoming race
-├── results.html            # Browser dashboard to visualise predictions
+├── index.html            # Browser dashboard to visualise predictions
 │
 ├── data/                   # CSVs produced by ingestion and processing
 │   ├── race_results.csv
