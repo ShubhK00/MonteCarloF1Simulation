@@ -1,7 +1,8 @@
 # F1 Race Predictor
 
 A hybrid XGBoost + Monte Carlo model that predicts the full finishing order of Formula 1 races using pre-race data only. Built on FastF1 historical data from 2018–2024.
-formulaforecast.vercel.app
+
+[Formula Forecast](https://formulaforecast.vercel.app)
 
 ---
 
